@@ -20,7 +20,7 @@ object Main {
   type Algebra[F[_], A] = F[A] => A
 
   def cata[F[_]: Functor, A](fix: Fix[F])(alg: Algebra[F, A]): A =
-    alg(fix.unFix.fmap(cata(_)(alg)))
+    alg(fix.unFix.map(cata(_)(alg)))
 
   val evaluate: Algebra[ExprF, Int] = {
     case Lit(x) => x
@@ -31,7 +31,7 @@ object Main {
   def showMe[A: Show](a: A): String =
     a.show
 
-  def addOneToEach[F[_]: Functor](fa: F[Int]): F[Int] = fa.fmap(_ + 1)
+  def addOneToEach[F[_]: Functor](fa: F[Int]): F[Int] = fa.map(_ + 1)
 
   def main(args: Array[String]): Unit = {
     println(showMe(chris))
@@ -39,7 +39,7 @@ object Main {
 
     println(addOneToEach(oneTwoThree))
     println(addOneToEach(foo))
-    println(foo.fmap(x => s"x is $x"))
+    println(foo.map(x => s"x is $x"))
     println(cata(Fix(expr))(evaluate))
   }
 
