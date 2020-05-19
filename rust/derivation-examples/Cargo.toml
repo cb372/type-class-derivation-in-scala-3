@@ -1,0 +1,13 @@
+[package]
+name = "derivation_examples"
+version = "0.1.0"
+authors = ["Chris Birchall <chris.birchall@47deg.com>"]
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+syn = { version = "1.0.22", features = ["derive"] }
+
+[lib]
+proc-macro = true
