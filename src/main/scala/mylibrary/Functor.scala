@@ -36,14 +36,14 @@ object Functor {
     case (a *: b) => Unapply[Wrap[a]] *: LiftP0[b]
   }
 
-  type Kind[C, O[_]] = C { type MirroredType = O ; type MirroredElemTypes[_] }
-  type Generic[O[_]] = Kind[Mirror, O]
-  type ProductGeneric[O[_]] = Kind[Mirror.Product, O]
-  type CoproductGeneric[O[_]] = Kind[Mirror.Sum, O]
+  type PolyMirror[C, O[_]] = C { type MirroredType = O ; type MirroredElemTypes[_] }
+  type Generic[O[_]] = PolyMirror[Mirror, O]
+  type ProductGeneric[O[_]] = PolyMirror[Mirror.Product, O]
+  type CoproductGeneric[O[_]] = PolyMirror[Mirror.Sum, O]
 
-  type Instances[F[_]] = ErasedInstances[Functor[F]]
-  type ProductInstances[F[_]] = ErasedProductInstances[Functor[F]]
-  type CoproductInstances[F[_]] = ErasedCoproductInstances[Functor[F]]
+  type Derived[F[_]] = DerivedFunctor[Functor[F]]
+  type ProductDerived[F[_]] = DerivedProductFunctor[Functor[F]]
+  type CoproductDerived[F[_]] = DerivedCoproductFunctor[Functor[F]]
 
   inline def summonAsArray[T <: Tuple]: Array[Any] =
     summonAsArray0[T](0, new Array[Any](constValue[Tuple.Size[T]]))
@@ -55,25 +55,24 @@ object Functor {
       summonAsArray0[b](i+1, arr)
   }
 
-  abstract class ErasedInstances[FT] {
-    def erasedMap(x: Any)(f: (Any, Any) => Any): Any
+  abstract class DerivedFunctor[FuncF] {
+    def erasedMap(fa: Any)(f: (Any, Any) => Any): Any
 
     def map[F[_], A, B](fa: F[A])(f: [t[_]] => (Functor[t], t[A]) => t[B]): F[B] =
       erasedMap(fa)(f.asInstanceOf).asInstanceOf
   }
 
-  final class ErasedProductInstances[FT](val mirror: Mirror.Product, is: Array[Any]) extends ErasedInstances[FT] {
-    import ErasedProductInstances.ArrayProduct
+  final class DerivedProductFunctor[FuncF](val mirror: Mirror.Product, is: Array[Any]) extends DerivedFunctor[FuncF] {
+    import DerivedProductFunctor.ArrayProduct
 
-    def erasedMap(x0: Any)(f: (Any, Any) => Any): Any = {
+    def erasedMap(fa: Any)(f: (Any, Any) => Any): Any = {
       val n = is.length
-      if (n == 0) x0
+      if (n == 0) fa
       else {
-        val x = x0.asInstanceOf[Product]
         val arr = new Array[Any](n)
         var i = 0
         while(i < n) {
-          arr(i) = f(is(i), x.productElement(i))
+          arr(i) = f(is(i), fa.asInstanceOf[Product].productElement(i))
           i = i+1
         }
         mirror.fromProduct(ArrayProduct(arr))
@@ -81,7 +80,7 @@ object Functor {
     }
   }
 
-  object ErasedProductInstances {
+  object DerivedProductFunctor {
     class ArrayProduct(val elems: Array[Any]) extends Product {
       def canEqual(that: Any): Boolean = true
       def productElement(n: Int) = elems(n)
@@ -89,42 +88,40 @@ object Functor {
       override def productIterator: Iterator[Any] = elems.iterator
     }
 
-    inline def apply[FT, E <: Tuple](mirror: Mirror.Product): ErasedProductInstances[FT] =
-      new ErasedProductInstances[FT](mirror, summonAsArray[E])
+    inline def apply[FuncF, E <: Tuple](mirror: Mirror.Product): DerivedProductFunctor[FuncF] =
+      new DerivedProductFunctor[FuncF](mirror, summonAsArray[E])
   }
 
-  final class ErasedCoproductInstances[FT](mirror: Mirror.Sum, is0: => Array[Any]) extends ErasedInstances[FT] {
+  final class DerivedCoproductFunctor[FuncF](mirror: Mirror.Sum, is0: => Array[Any]) extends DerivedFunctor[FuncF] {
     lazy val is = is0
 
-    def ordinal(x: Any): Any = is(mirror.ordinal(x.asInstanceOf))
-
-    def erasedMap(x: Any)(f: (Any, Any) => Any): Any = {
-      val i = ordinal(x)
-      f(i, x)
+    def erasedMap(fa: Any)(f: (Any, Any) => Any): Any = {
+      val i = is(mirror.ordinal(fa.asInstanceOf))
+      f(i, fa)
     }
 
   }
 
-  object ErasedCoproductInstances {
-    inline def apply[FT, E <: Tuple](mirror: Mirror.Sum): ErasedCoproductInstances[FT] =
-      new ErasedCoproductInstances[FT](mirror, summonAsArray[E])
+  object DerivedCoproductFunctor {
+    inline def apply[FuncF, E <: Tuple](mirror: Mirror.Sum): DerivedCoproductFunctor[FuncF] =
+      new DerivedCoproductFunctor[FuncF](mirror, summonAsArray[E])
   }
 
-  inline given mkInstances[F[_]](using gen: Generic[F]) as Instances[F] =
+  inline given mkDerived[F[_]](using gen: Generic[F]) as Derived[F] =
     inline gen match {
-      case p: ProductGeneric[F] => mkProductInstances[F](using p)
-      case c: CoproductGeneric[F] => mkCoproductInstances[F](using c)
+      case p: ProductGeneric[F] => mkProductDerived[F](using p)
+      case c: CoproductGeneric[F] => mkCoproductDerived[F](using c)
     }
 
-  inline given mkProductInstances[F[_]](using gen: ProductGeneric[F]) as ProductInstances[F] =
-    ErasedProductInstances[Functor[F], LiftP[gen.MirroredElemTypes]](gen)
+  inline given mkProductDerived[F[_]](using gen: ProductGeneric[F]) as ProductDerived[F] =
+    DerivedProductFunctor[Functor[F], LiftP[gen.MirroredElemTypes]](gen)
 
-  inline given mkCoproductInstances[F[_]](using gen: CoproductGeneric[F]) as CoproductInstances[F] =
-    ErasedCoproductInstances[Functor[F], LiftP[gen.MirroredElemTypes]](gen)
+  inline given mkCoproductDerived[F[_]](using gen: CoproductGeneric[F]) as CoproductDerived[F] =
+    DerivedCoproductFunctor[Functor[F], LiftP[gen.MirroredElemTypes]](gen)
 
-  given derived[F[_]](using inst: Instances[F]) as Functor[F] {
+  given derived[F[_]](using derivedFunctor: Derived[F]) as Functor[F] {
     def [A, B] (fa: F[A]).fmap(f: A => B): F[B] =
-      inst.map(fa)([t[_]] => (ft: Functor[t], ta: t[A]) => ft.fmap(ta)(f))
+      derivedFunctor.map(fa)([t[_]] => (ft: Functor[t], ta: t[A]) => ft.fmap(ta)(f))
   }
 
 }
