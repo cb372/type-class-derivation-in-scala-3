@@ -57,11 +57,11 @@ object Show {
     }
   }
 
-  given Show[Int] = new Show[Int] {
+  given as Show[Int] {
     def (a: Int).show: String = a.toString
   }
 
-  given Show[String] = new Show[String] {
+  given as Show[String] {
     def (a: String).show: String = s""""$a""""
   }
 
