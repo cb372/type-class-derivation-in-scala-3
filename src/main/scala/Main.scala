@@ -36,6 +36,8 @@ object Main {
   def main(args: Array[String]): Unit = {
     println(showMe(chris))
     println(showMe(eric))
+    println(showMe(Weather.Rainy))
+    println(showMe[Weather](Weather.Rainy))
 
     println(addOneToEach(oneTwoThree))
     println(addOneToEach(foo))

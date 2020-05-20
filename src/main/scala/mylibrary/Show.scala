@@ -19,19 +19,40 @@ object Show {
     case _: (t *: ts) => constValue[t].asInstanceOf[String] :: elemLabels[ts]
   }
 
-  inline def derived[A](using m: Mirror.ProductOf[A]): Show[A] = {
+  inline given derived[A](using m: Mirror.Of[A]) as Show[A] = {
     val elemInstances = summonAll[m.MirroredElemTypes]
+    inline m match {
+      case s: Mirror.SumOf[A]     => derivedForSum(s, elemInstances)
+      case p: Mirror.ProductOf[A] => derivedForProduct(p, elemInstances)
+    }
+  }
+
+  inline def derivedForSum[A](m: Mirror.SumOf[A], elemInstances: List[Show[_]]): Show[A] = {
+    new Show[A] {
+      def (a: A).show: String = {
+        val i = m.ordinal(a)
+        elemInstances(i).asInstanceOf[Show[Any]].show(a)
+      }
+    }
+  }
+
+  inline def derivedForProduct[A](m: Mirror.ProductOf[A], elemInstances: List[Show[_]]): Show[A] = {
     val productName = constValue[m.MirroredLabel]
     val labels = elemLabels[m.MirroredElemLabels]
     new Show[A] {
       def (a: A).show: String = {
-        val prod = a.asInstanceOf[Product]
-        val elements = labels.iterator zip prod.productIterator
-        val elemStrings = (elements zip elemInstances).map {
-          case ((name, value), instance) =>
-            s"$name = ${instance.asInstanceOf[Show[Any]].show(value)}"
+        if (a.isInstanceOf[Product]) {
+          val elements = labels.iterator zip a.asInstanceOf[Product].productIterator
+          val elemStrings = (elements zip elemInstances).map {
+            case ((name, value), instance) =>
+              s"$name = ${instance.asInstanceOf[Show[Any]].show(value)}"
+          }
+          s"${productName}(${elemStrings.mkString(", ")})"
+        } else {
+          // A is an enum case with no argument list.
+          // See https://github.com/lampepfl/dotty/issues/9011
+          productName
         }
-        s"${productName}(${elemStrings.mkString(", ")})"
       }
     }
   }
