@@ -39,10 +39,6 @@ object Functor {
       override def productIterator: Iterator[Any] = elems.iterator
     }
 
-    type Derived[F[_]] = DerivedFunctor[Functor[F]]
-    type ProductDerived[F[_]] = DerivedProductFunctor[Functor[F]]
-    type CoproductDerived[F[_]] = DerivedCoproductFunctor[Functor[F]]
-
     type PolyMirror[C, O[_]] = C { type MirroredType = O ; type MirroredElemTypes[_] }
     type MirrorOf[O[_]] = PolyMirror[Mirror, O]
     type ProductMirrorOf[O[_]] = PolyMirror[Mirror.Product, O]
@@ -68,66 +64,50 @@ object Functor {
 
   import Helpers._
 
-  abstract class DerivedFunctor[FuncF] {
-    def erasedMap(fa: Any)(f: Any => Any): Any
+  case class LazyWrapper[F[_]](functor: Functor[F])
 
-    def map[F[_], A, B](fa: F[A])(f: A => B): F[B] =
-      erasedMap(fa)(f.asInstanceOf).asInstanceOf
-  }
-
-  final class DerivedProductFunctor[FuncF](mirror: Mirror.Product, elemFunctors: Array[Any]) extends DerivedFunctor[FuncF] {
-
-    def erasedMap(fa: Any)(f: Any => Any): Any = {
-      val n = elemFunctors.length
-      if (n == 0) fa
-      else {
-        val arr = new Array[Any](n)
-        var i = 0
-        while(i < n) {
-          val F: Functor[_] = elemFunctors(i).asInstanceOf
-          val elem: Any = fa.asInstanceOf[Product].productElement(i)
-          arr(i) = F.map(elem.asInstanceOf)(f)
-          i = i+1
-        }
-        mirror.fromProduct(ArrayProduct(arr))
-      }
-    }
-  }
-
-  object DerivedProductFunctor {
-    inline def apply[F[_], E <: Tuple](mirror: Mirror.Product): DerivedProductFunctor[Functor[F]] =
-      new DerivedProductFunctor[Functor[F]](mirror, summonAsArray[E])
-  }
-
-  final class DerivedCoproductFunctor[FuncF](mirror: Mirror.Sum, elemFunctors: Array[Any]) extends DerivedFunctor[FuncF] {
-
-    def erasedMap(fa: Any)(f: Any => Any): Any = {
-      val F: Functor[_] = elemFunctors(mirror.ordinal(fa.asInstanceOf)).asInstanceOf
-      F.map(fa.asInstanceOf)(f)
-    }
-
-  }
-
-  object DerivedCoproductFunctor {
-    inline def apply[F[_], E <: Tuple](mirror: Mirror.Sum): DerivedCoproductFunctor[Functor[F]] =
-      new DerivedCoproductFunctor[Functor[F]](mirror, summonAsArray[E])
-  }
-
-  inline given mkDerived[F[_]](using mirror: MirrorOf[F]) as Derived[F] =
-    inline mirror match {
-      case p: ProductMirrorOf[F] => mkProductDerived[F](using p)
-      case c: CoproductMirrorOf[F] => mkCoproductDerived[F](using c)
-    }
-
-  inline given mkProductDerived[F[_]](using mirror: ProductMirrorOf[F]) as ProductDerived[F] =
-    DerivedProductFunctor[F, Functors[mirror.MirroredElemTypes]](mirror)
-
-  inline given mkCoproductDerived[F[_]](using mirror: CoproductMirrorOf[F]) as CoproductDerived[F] =
-    DerivedCoproductFunctor[F, Functors[mirror.MirroredElemTypes]](mirror)
-
-  given derived[F[_]](using derivedFunctor: => Derived[F]) as Functor[F] {
+  given derived[F[_]](using wrapper: => LazyWrapper[F]) as Functor[F] {
     def [A, B] (fa: F[A]).map(f: A => B): F[B] =
-      derivedFunctor.map(fa)(f)
+      wrapper.functor.map(fa)(f)
   }
+
+  inline given [F[_]](using mirror: MirrorOf[F]) as LazyWrapper[F] = {
+    val functors = summonAsArray[Functors[mirror.MirroredElemTypes]]
+    inline mirror match {
+      case p: ProductMirrorOf[F] => derivedForProduct[F](p, functors)
+      case c: CoproductMirrorOf[F] => derivedForCoproduct[F](c, functors)
+    }
+  }
+
+  inline def derivedForProduct[F[_]](m: ProductMirrorOf[F], elemFunctors: Array[Any]): LazyWrapper[F] =
+    LazyWrapper(
+      new Functor[F] {
+        def [A, B] (fa: F[A]).map(f: A => B): F[B] = {
+          val n = elemFunctors.length
+          if (n == 0) fa.asInstanceOf[F[B]]
+          else {
+            val arr = new Array[Any](n)
+            var i = 0
+            while(i < n) {
+              val F: Functor[_] = elemFunctors(i).asInstanceOf
+              val elem: Any = fa.asInstanceOf[Product].productElement(i)
+              arr(i) = F.map(elem.asInstanceOf)(f)
+              i = i+1
+            }
+            m.fromProduct(ArrayProduct(arr)).asInstanceOf[F[B]]
+          }
+        }
+      }
+    )
+
+  inline def derivedForCoproduct[F[_]](m: CoproductMirrorOf[F], elemFunctors: Array[Any]): LazyWrapper[F] =
+    LazyWrapper(
+      new Functor[F] {
+        def [A, B] (fa: F[A]).map(f: A => B): F[B] = {
+          val i = m.ordinal(fa.asInstanceOf)
+          elemFunctors(i).asInstanceOf[Functor[F]].map(fa)(f)
+        }
+      }
+    )
 
 }
