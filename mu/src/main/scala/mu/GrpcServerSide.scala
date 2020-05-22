@@ -1,6 +1,7 @@
 package mu
 
-import io.grpc.ServerServiceDefinition
+import io.grpc._
+import io.grpc.MethodDescriptor.Marshaller
 
 trait GrpcServerSide[S] {
 
@@ -33,6 +34,11 @@ object GrpcServerSide {
     def isValidMethod(tparams: List[TypeDef], paramss: List[List[ValDef]], rhs: Option[Term]) =
       tparams.isEmpty && paramss.flatten.size == 1 && rhs.isEmpty
 
+    def sequence(exprs: List[Expr[S => ServerMethodDefinition[_, _]]]): Expr[List[S => ServerMethodDefinition[_, _]]] = exprs match {
+      case h :: t => '{ $h :: ${sequence(t)} }
+      case Nil => '{ Nil: List[S => ServerMethodDefinition[_, _]] }
+    }
+
     typeOf[S].classSymbol match {
       case Some(classSym) if isTraitOrAbstractClass(classSym.flags) && hasServiceAnnotation(classSym.annots) =>
         /*
@@ -40,24 +46,76 @@ object GrpcServerSide {
          * For the demo we just assume protobuf.
          */
 
-        classSym.classMethods.map { methodSym =>
-          methodSym.tree match {
-            case DefDef(name, tparams, paramss, returnTpt, rhs) if isValidMethod(tparams, paramss, rhs) =>
-              println(name)
-              println(paramss)
-              println(returnTpt)
-              /*
-               * TODO for each method:
-               * - summon a marshaller for the request and response
-               * - build a MethodDefinition
-               *
-               */
+        val serviceName = Expr(classSym.fullName)
+
+        val methodDefinitions: List[Expr[S => ServerMethodDefinition[_, _]]] =
+          classSym.classMethods.map { methodSym =>
+            methodSym.tree match {
+              case DefDef(methodName, tparams, paramss, returnTpt, rhs) if isValidMethod(tparams, paramss, rhs) =>
+                val requestTpe = paramss.flatten.head.tpt.tpe
+                val responseTpe = returnTpt.tpe
+
+                (requestTpe.seal, responseTpe.seal) match {
+                  case ('[$req], '[$resp]) =>
+                    val serverCallHandler: Expr[S => ServerCallHandler[$req, $resp]] =
+                      // TODO how can I construct this tree? Build an Apply by hand?
+                      // (srv: Greeter) => unary[HelloRequest, HelloResponse](request => srv.SayHello(request)
+                      '{ (srv: $s) =>
+                        CallHandlers.unary[$req, $resp](request => {
+                          println(request)
+                          ???
+                        })
+                      }
+                    println(serverCallHandler.show)
+
+                    val requestMarshaller: Expr[Marshaller[$req]] =
+                      Expr.summon[ProtobufMarshaller[$req]] match {
+                        case Some(marshaller) =>
+                          marshaller
+                        case None =>
+                          qctx.error(s"Could not summon a Protobuf marshaller for request type $req")
+                          '{ ??? }
+                      }
+
+                    val responseMarshaller: Expr[Marshaller[$resp]] =
+                      Expr.summon[ProtobufMarshaller[$resp]] match {
+                        case Some(marshaller) =>
+                          marshaller
+                        case None =>
+                          qctx.error(s"Could not summon a Protobuf marshaller for response type $resp")
+                          '{ ??? }
+                      }
+
+                    val fullMethodName = Expr(s"${classSym.fullName}/$methodName")
+
+                    val methodDescriptor: Expr[MethodDescriptor[$req, $resp]] = '{
+                      MethodDescriptor
+                        .newBuilder($requestMarshaller, $responseMarshaller)
+                        .setType(MethodDescriptor.MethodType.UNARY)
+                        .setFullMethodName($fullMethodName)
+                        .build()
+                    }
+
+                    '{ (srv: $s) =>
+                      ServerMethodDefinition.create($methodDescriptor, $serverCallHandler(srv))
+                    }
+                }
+            }
           }
-        }
+
+        val methodDefinitionsExpr: Expr[List[S => ServerMethodDefinition[_, _]]] =
+          sequence(methodDefinitions)
 
         val result = '{
-          GrpcServerSide.instance[$s]{ service =>
-            ServerServiceDefinition.builder("class-name-goes-here").build()
+          type X = $s
+          new GrpcServerSide[X]{
+            def (service: S).toServerServiceDefinition: ServerServiceDefinition = {
+              val builder = ServerServiceDefinition.builder($serviceName)
+              ${methodDefinitionsExpr}.foreach { f =>
+                builder.addMethod(f(service))
+              }
+              builder.build()
+            }
           }
         }
         println(result.show)

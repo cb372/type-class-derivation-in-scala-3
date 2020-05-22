@@ -18,7 +18,8 @@ lazy val mu = project
     version := "0.1.0",
     scalaVersion := dottyVersion,
     libraryDependencies ++= Seq(
-      "io.grpc" % "grpc-netty" % grpcVersion
+      "io.grpc" % "grpc-netty" % grpcVersion,
+      "io.grpc" % "grpc-stub" % grpcVersion
     )
   )
 
@@ -30,7 +31,8 @@ lazy val muService = project
     version := "0.1.0",
     scalaVersion := dottyVersion,
     libraryDependencies ++= Seq(
-      "io.grpc" % "grpc-netty" % grpcVersion
+      "io.grpc" % "grpc-netty" % grpcVersion,
+      "io.grpc" % "grpc-stub" % grpcVersion
     ),
     fork := true
   )
