@@ -13,12 +13,6 @@ object GrpcServerSide {
 
   inline def derived[S]: GrpcServerSide[S] = ${ gen[S] }
 
-  // This is a workaround for https://github.com/lampepfl/dotty/issues/9020
-  def instance[S](f: S => ServerServiceDefinition): GrpcServerSide[S] =
-    new GrpcServerSide[S] {
-      def (service: S).toServerServiceDefinition: ServerServiceDefinition = f(service)
-    }
-
   import scala.quoted._
   import scala.reflect._
 
@@ -42,31 +36,42 @@ object GrpcServerSide {
     typeOf[S].classSymbol match {
       case Some(classSym) if isTraitOrAbstractClass(classSym.flags) && hasServiceAnnotation(classSym.annots) =>
         /*
-         * TODO grab the encoding and other configuration from the @service annotation.
+         * In the real Mu we would grab the encoding and other configuration
+         * from the @service annotation.
          * For the demo we just assume protobuf.
          */
 
         val serviceName = Expr(classSym.fullName)
 
+        /*
+         * For each method in the trait, we build a gRPC method definition:
+         *   - construct a ServerCallHandler that, given an instance of the service trait
+         *     and a request, calls the method on the instance to get the response
+         *   - Summon marshallers for the method's request and response types
+         *   - generate the appropriate fully-qualified name ("package.serviceName/methodName")
+         */
         val methodDefinitions: List[Expr[S => ServerMethodDefinition[_, _]]] =
           classSym.classMethods.map { methodSym =>
             methodSym.tree match {
-              case DefDef(methodName, tparams, paramss, returnTpt, rhs) if isValidMethod(tparams, paramss, rhs) =>
+              case DefDef(methodName, tparams, paramss, returnTpt, rhs)
+                if isValidMethod(tparams, paramss, rhs) =>
+
                 val requestTpe = paramss.flatten.head.tpt.tpe
                 val responseTpe = returnTpt.tpe
 
                 (requestTpe.seal, responseTpe.seal) match {
                   case ('[$req], '[$resp]) =>
                     val serverCallHandler: Expr[S => ServerCallHandler[$req, $resp]] =
-                      // TODO how can I construct this tree? Build an Apply by hand?
-                      // (srv: Greeter) => unary[HelloRequest, HelloResponse](request => srv.SayHello(request)
                       '{ (srv: $s) =>
-                        CallHandlers.unary[$req, $resp](request => {
-                          println(request)
-                          ???
-                        })
+                        CallHandlers.unary[$req, $resp](request =>
+                          ${
+                            Apply(
+                              Select('srv.unseal, methodSym),
+                              List('request.unseal)
+                            ).seal.cast
+                          }
+                        )
                       }
-                    println(serverCallHandler.show)
 
                     val requestMarshaller: Expr[Marshaller[$req]] =
                       Expr.summon[ProtobufMarshaller[$req]] match {
@@ -103,10 +108,12 @@ object GrpcServerSide {
             }
           }
 
+        // Turn a list of expressions into an expression of a list
         val methodDefinitionsExpr: Expr[List[S => ServerMethodDefinition[_, _]]] =
           sequence(methodDefinitions)
 
-        val result = '{
+        '{
+          // this line is a workaround for https://github.com/lampepfl/dotty/issues/9020
           type X = $s
           new GrpcServerSide[X]{
             def (service: S).toServerServiceDefinition: ServerServiceDefinition = {
@@ -118,8 +125,6 @@ object GrpcServerSide {
             }
           }
         }
-        println(result.show)
-        result
       case _ =>
         qctx.error("Can only derive GrpcServerSide for @service-annotated traits or abstract classes")
         '{ ??? }
