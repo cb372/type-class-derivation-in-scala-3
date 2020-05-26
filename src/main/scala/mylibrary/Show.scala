@@ -19,36 +19,44 @@ object Show {
     case _: (t *: ts) => constValue[t].asInstanceOf[String] :: elemLabels[ts]
   }
 
-  inline given derived[A](using m: Mirror.Of[A]) as Show[A] = {
-    val elemInstances = summonAll[m.MirroredElemTypes]
-    inline m match {
-      case s: Mirror.SumOf[A]     => derivedForSum(s, elemInstances)
-      case p: Mirror.ProductOf[A] => derivedForProduct(p, elemInstances)
-    }
-  }
-
-  inline def derivedForSum[A](m: Mirror.SumOf[A], elemInstances: List[Show[_]]): Show[A] = {
-    new Show[A] {
-      def (a: A).show: String = {
-        val i = m.ordinal(a)
-        elemInstances(i).asInstanceOf[Show[Any]].show(a)
+  inline def derived[A](using m: Mirror.Of[A]): Show[A] = new Show[A] {
+    def (a: A).show: String = {
+      inline m match {
+        case p: Mirror.ProductOf[A] => showProduct(p, a)
+        case s: Mirror.SumOf[A]     => showSum(s, a)
       }
     }
   }
 
-  inline def derivedForProduct[A](m: Mirror.ProductOf[A], elemInstances: List[Show[_]]): Show[A] = {
+  inline def showProduct[A](m: Mirror.ProductOf[A], a: A): String = {
     val productName = constValue[m.MirroredLabel]
     val labels = elemLabels[m.MirroredElemLabels]
-    new Show[A] {
-      def (a: A).show: String = {
-        val elements = labels.iterator zip a.asInstanceOf[Product].productIterator
-        val elemStrings = (elements zip elemInstances).map {
-          case ((name, value), instance) =>
-            s"$name = ${instance.asInstanceOf[Show[Any]].show(value)}"
-        }
-        s"${productName}(${elemStrings.mkString(", ")})"
-      }
+    val elements = labels.iterator zip a.asInstanceOf[Product].productIterator
+    val elemInstances = summonAll[m.MirroredElemTypes]
+    val elemStrings = (elements zip elemInstances).map {
+      case ((name, value), instance) =>
+        s"$name = ${instance.asInstanceOf[Show[Any]].show(value)}"
     }
+    s"${productName}(${elemStrings.mkString(", ")})"
+  }
+
+  private inline def rec[A, T](n: Int, ord: Int, a: A): String = {
+    inline erasedValue[T] match {
+      case _: (t *: ts) =>
+        if (n == ord) {
+          summonFrom {
+            case p: Mirror.ProductOf[`t`] => showProduct[t](p, a.asInstanceOf[t])
+          }
+        } else {
+          rec[A, ts](n + 1, ord, a)
+        }
+      case _: Unit => ""
+    }
+  }
+
+  inline def showSum[A](m: Mirror.SumOf[A], a: A): String = {
+    val ord = m.ordinal(a)
+    rec[A, m.MirroredElemTypes](0, ord, a)
   }
 
   given as Show[Int] {
