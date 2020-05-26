@@ -44,7 +44,7 @@ object Main {
     println(addOneToEach(oneTwoThree))
     println(addOneToEach(foo))
     println(foo.map(x => s"x is $x"))
-    println(cata(Fix(expr))(evaluate))
+    //println(cata(Fix(expr))(evaluate))
   }
 
 
