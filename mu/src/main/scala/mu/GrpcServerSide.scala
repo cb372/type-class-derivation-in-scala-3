@@ -78,8 +78,7 @@ object GrpcServerSide {
                         case Some(marshaller) =>
                           marshaller
                         case None =>
-                          qctx.error(s"Could not summon a Protobuf marshaller for request type $req")
-                          '{ ??? }
+                          Reporting.throwError(s"Could not summon a Protobuf marshaller for request type $req")
                       }
 
                     val responseMarshaller: Expr[Marshaller[$resp]] =
@@ -87,8 +86,7 @@ object GrpcServerSide {
                         case Some(marshaller) =>
                           marshaller
                         case None =>
-                          qctx.error(s"Could not summon a Protobuf marshaller for response type $resp")
-                          '{ ??? }
+                          Reporting.throwError(s"Could not summon a Protobuf marshaller for response type $resp")
                       }
 
                     val fullMethodName = Expr(s"${classSym.fullName}/$methodName")
@@ -126,8 +124,7 @@ object GrpcServerSide {
           }
         }
       case _ =>
-        qctx.error("Can only derive GrpcServerSide for @service-annotated traits or abstract classes")
-        '{ ??? }
+        Reporting.throwError("Can only derive GrpcServerSide for @service-annotated traits or abstract classes")
     }
   }
 
