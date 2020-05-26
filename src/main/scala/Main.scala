@@ -5,6 +5,7 @@ object Main {
 
   val chris = Person("Chris", 180)
   val eric = Pet("Eric", "cat", chris)
+  val bob = Employee.Grunt("Bob", Employee.Grunt("Alice", Employee.CEO))
 
   val foo = Foo(42, "hello")
   val oneTwoThree = MyList.Cons(1, MyList.Cons(2, MyList.Cons(3, MyList.Nil)))
@@ -36,6 +37,7 @@ object Main {
   def main(args: Array[String]): Unit = {
     println(showMe(chris))
     println(showMe(eric))
+    println(showMe(bob))
     println(showMe(Weather.Rainy))
     println(showMe[Weather](Weather.Rainy))
 
