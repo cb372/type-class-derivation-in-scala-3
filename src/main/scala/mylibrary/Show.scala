@@ -41,18 +41,12 @@ object Show {
     val labels = elemLabels[m.MirroredElemLabels]
     new Show[A] {
       def (a: A).show: String = {
-        if (a.isInstanceOf[Product]) {
-          val elements = labels.iterator zip a.asInstanceOf[Product].productIterator
-          val elemStrings = (elements zip elemInstances).map {
-            case ((name, value), instance) =>
-              s"$name = ${instance.asInstanceOf[Show[Any]].show(value)}"
-          }
-          s"${productName}(${elemStrings.mkString(", ")})"
-        } else {
-          // A is an enum case with no argument list.
-          // See https://github.com/lampepfl/dotty/issues/9011
-          productName
+        val elements = labels.iterator zip a.asInstanceOf[Product].productIterator
+        val elemStrings = (elements zip elemInstances).map {
+          case ((name, value), instance) =>
+            s"$name = ${instance.asInstanceOf[Show[Any]].show(value)}"
         }
+        s"${productName}(${elemStrings.mkString(", ")})"
       }
     }
   }

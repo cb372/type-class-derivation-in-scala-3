@@ -1,4 +1,4 @@
-val dottyVersion = "0.25.0-bin-20200516-9450bf2-NIGHTLY"
+val dottyVersion = "0.25.0-bin-20200523-5358651-NIGHTLY"
 val grpcVersion = "1.29.0"
 
 lazy val root = project
